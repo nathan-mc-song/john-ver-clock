@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>John ver clock</title>
+<meta name="theme-color" content="#E9EEEC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0A1311" media="(prefers-color-scheme: dark)">
+<meta name="description" content="오늘도 존버! 오늘 번 돈이 실시간으로 올라가는 시계">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="John ver clock">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: phone-first app column (max 480px). One screen at a time (오늘, 달력, 설정) chosen from a fixed bottom tab bar. The hero card holds the live counter and an hour-ruled day rail; the day editor opens as a bottom sheet. Palette: banknote green and saffron on a cool paper grey. */
+:root {
+  --bg: #E9EEEC;
+  --surface: #F8FBFA;
+  --fg: #13211D;
+  --muted: #4F665E;
+  --line: #CBD6D2;
+  --track: #D9E2DF;
+  --accent: #0E7A5A;
+  --accent-soft: #CDEBDD;
+  --coin: #8F5A00;
+  --coin-soft: #F5E2B5;
+  --hero-bg: #0C3A2E;
+  --hero-fg: #EAF7F0;
+  --hero-muted: #9CC4B4;
+  --hero-num: #7DF0BE;
+  --hero-track: rgba(255, 255, 255, 0.14);
+  --hero-coin: #F2B33D;
+  --font-body: 'Noto Sans KR', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0A1311;
+    --surface: #111D1A;
+    --fg: #E2EEE9;
+    --muted: #8DA79E;
+    --line: #213430;
+    --track: #1B2C28;
+    --accent: #5FD9A8;
+    --accent-soft: #17463A;
+    --coin: #F2B33D;
+    --coin-soft: #3E3115;
+    --hero-bg: #0F3A2E;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0A1311;
+  --surface: #111D1A;
+  --fg: #E2EEE9;
+  --muted: #8DA79E;
+  --line: #213430;
+  --track: #1B2C28;
+  --accent: #5FD9A8;
+  --accent-soft: #17463A;
+  --coin: #F2B33D;
+  --coin-soft: #3E3115;
+  --hero-bg: #0F3A2E;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-tap-highlight-color: transparent;
+}
+body.sheet-open { overflow: hidden; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+b { font-weight: 500; }
+
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.screen { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 700; font-size: 16px; letter-spacing: 0.01em; }
+.brand svg { width: 28px; height: 28px; flex: none; color: var(--accent); }
+.top-r { display: flex; align-items: center; gap: 8px; }
+.pill { font-size: 13px; font-weight: 500; padding: 5px 12px; border-radius: 999px; background: var(--track); color: var(--muted); white-space: nowrap; }
+.pill[data-state="work"] { background: var(--accent-soft); color: var(--accent); }
+.pill[data-state="lunch"] { background: var(--coin-soft); color: var(--coin); }
+.icon-btn { width: 44px; height: 44px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); display: grid; place-items: center; color: var(--muted); padding: 0; }
+.icon-btn svg { width: 21px; height: 21px; }
+.icon-btn .off { display: none; }
+.icon-btn[aria-pressed="true"] .on { display: none; }
+.icon-btn[aria-pressed="true"] .off { display: block; }
+.icon-btn[aria-pressed="true"] { color: var(--coin); background: var(--coin-soft); border-color: transparent; }
+
+/* amount hiding */
+b.money, span.money { display: inline-block; }
+.money { transition: filter 0.2s; }
+.hide-money .money { filter: blur(9px); user-select: none; }
+
+/* hero */
+.hero { background: var(--hero-bg); color: var(--hero-fg); border-radius: 22px; padding: 18px 20px 18px; }
+.hero-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; color: var(--hero-muted); }
+.hero-now { font-family: var(--font-num); font-weight: 500; color: var(--hero-fg); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.hero-label { margin-top: 22px; font-size: 12px; font-weight: 500; letter-spacing: 0.1em; color: var(--hero-muted); }
+.counter { margin-top: 2px; display: flex; align-items: baseline; flex-wrap: wrap; min-width: 0; font-family: var(--font-num); font-weight: 600; color: var(--hero-num); font-size: clamp(36px, 12.4vw, 58px); line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.counter .cur { font-size: 0.5em; margin-right: 0.14em; opacity: 0.7; }
+.counter .dec { font-size: 0.46em; opacity: 0.75; }
+.hero-sub { margin-top: 6px; font-size: 14px; color: var(--hero-muted); }
+.hero-sub b { color: var(--hero-fg); font-variant-numeric: tabular-nums; }
+.rail { position: relative; height: 12px; margin-top: 22px; border-radius: 6px; background: var(--hero-track); }
+.rail-clip { position: absolute; inset: 0; border-radius: 6px; overflow: hidden; }
+.r-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--hero-num); }
+.r-lunch { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--hero-coin) 0 3px, transparent 3px 7px); opacity: 0.9; }
+.r-lunch.soft { opacity: 0.35; }
+.r-ticks i { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--hero-bg); opacity: 0.6; }
+.r-knob { position: absolute; top: 50%; left: 0; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; background: var(--hero-bg); border: 4px solid var(--hero-num); box-shadow: 0 0 0 5px rgba(125, 240, 190, 0.18); }
+.r-knob.off { opacity: 0; }
+.rail-labels { display: flex; justify-content: space-between; margin-top: 10px; font-family: var(--font-num); font-size: 12px; color: var(--hero-muted); }
+.hero-note { margin: 4px 0 0; font-size: 13px; color: var(--hero-muted); }
+.slogan { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.14); font-size: 15px; font-weight: 500; line-height: 1.5; color: var(--hero-fg); text-wrap: balance; word-break: keep-all; }
+
+/* cards and tiles */
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.k { font-size: 13px; color: var(--muted); }
+.v { font-family: var(--font-num); font-size: clamp(18px, 5.4vw, 22px); font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rates { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.rates > div { padding: 12px; min-width: 0; }
+.rates > div + div { border-left: 1px solid var(--line); }
+.rates dt { font-size: 12px; color: var(--muted); }
+.rates dd { margin: 2px 0 0; font-family: var(--font-num); font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mcard { display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; text-decoration: none; color: inherit; }
+.mc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mc-more { font-size: 13px; font-weight: 500; color: var(--accent); }
+.mc-total { font-family: var(--font-num); font-weight: 600; font-size: clamp(28px, 8.6vw, 38px); line-height: 1.1; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.u { font-family: var(--font-body); font-size: 0.42em; font-weight: 500; color: var(--muted); margin-left: 0.4em; letter-spacing: 0; }
+.bar { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+.mc-sub { font-size: 13px; color: var(--muted); }
+.mc-sub b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.sal-link { align-self: center; font-size: 13px; color: var(--muted); text-decoration: none; padding: 11px 16px; border-radius: 999px; border: 1px dashed var(--line); }
+
+/* month screen */
+.m-nav { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px auto; gap: 6px; align-items: center; }
+.nav-btn { height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; padding: 0; }
+.m-title { text-align: center; font-weight: 700; font-size: 17px; }
+.mini { height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; white-space: nowrap; }
+.m-sum { display: flex; flex-direction: column; gap: 8px; }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.dow { text-align: center; font-size: 12px; color: var(--muted); padding: 2px 0; }
+.dow.sun { color: var(--coin); }
+.day { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 1px 4px; min-height: 60px; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.day .n { font-family: var(--font-num); font-size: 14px; font-weight: 500; }
+.day .tag { font-size: 10px; line-height: 1.2; color: var(--muted); white-space: nowrap; overflow: hidden; max-width: 100%; min-height: 12px; }
+.day .amt { font-family: var(--font-num); font-size: 10px; color: var(--accent); }
+.day.k-weekend, .day.k-holiday, .day.k-before { background: transparent; border-color: transparent; color: var(--muted); }
+.day.k-before { opacity: 0.5; }
+.day.hol .n { color: var(--coin); }
+.day.k-paid { background: var(--accent-soft); }
+.day.k-unpaid { background: var(--coin-soft); }
+.day.k-off { background: var(--track); }
+.day.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.day.sel { outline: 2px solid var(--fg); outline-offset: 1px; }
+.blank { min-height: 1px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--c); border: 1px solid var(--line); }
+.list { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.list > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 16px; }
+.list > div + div { border-top: 1px solid var(--line); }
+.list dt { font-size: 14px; color: var(--muted); }
+.list dd { margin: 0; font-family: var(--font-num); font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+
+/* bottom sheet */
+.scrim { position: fixed; inset: 0; z-index: 30; background: rgba(6, 14, 12, 0.5); }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; max-width: 480px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-bottom: 0; border-radius: 22px 22px 0 0; padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 10px; }
+.sheet:not([hidden]) { animation: up 0.22s ease-out; }
+@keyframes up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line); align-self: center; }
+.sh-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sh-date { font-weight: 700; font-size: 17px; }
+.sh-kind { font-size: 13px; color: var(--muted); margin-top: -4px; }
+.sh-pay { font-size: 14px; color: var(--muted); }
+.sh-pay b { color: var(--fg); font-family: var(--font-num); }
+.sh-x { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-size: 18px; padding: 0; }
+.sh-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.chip { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font-size: 14px; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
+/* settings */
+.s-title { margin: 4px 0 0; font-size: 22px; font-weight: 700; line-height: 1.3; }
+.s-sub { margin: -8px 0 0; font-size: 14px; color: var(--muted); }
+.group { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.g-title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); }
+.sal { display: flex; gap: 8px; align-items: stretch; }
+.step { flex: none; min-width: 64px; min-height: 58px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); font-family: var(--font-num); font-size: 14px; font-weight: 500; padding: 0 8px; }
+.sal-in { flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); padding: 4px 12px; }
+.sal-in:focus-within { outline: 2px solid var(--accent); }
+.sal-in input { width: 100%; min-width: 0; border: 0; background: transparent; outline: 0; padding: 6px 0; text-align: right; font-family: var(--font-num); font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield; }
+.sal-in input::-webkit-outer-spin-button, .sal-in input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sal-in b { font-size: 14px; color: var(--muted); white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips .chip { min-height: 40px; padding: 0 14px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fld { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fld label { font-size: 13px; color: var(--muted); }
+.inp { width: 100%; min-width: 0; min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font-family: var(--font-num); font-size: 17px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 48px; }
+.row .r-t { font-size: 15px; font-weight: 500; }
+.row .hint { margin-top: 2px; }
+.sw { position: relative; flex: none; width: 52px; height: 30px; border-radius: 15px; border: 0; padding: 0; background: var(--track); box-shadow: inset 0 0 0 1px var(--line); transition: background 0.15s; }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: transform 0.15s; }
+.sw[aria-checked="true"] { background: var(--accent); box-shadow: none; }
+.sw[aria-checked="true"]::after { transform: translateX(22px); }
+.seg3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: var(--track); }
+.seg3 button { min-height: 44px; border: 0; border-radius: 10px; background: transparent; font-size: 14px; color: var(--muted); padding: 0 4px; }
+.seg3 button[aria-checked="true"] { background: var(--surface); color: var(--fg); font-weight: 700; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.join { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.btn { min-height: 48px; padding: 0 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-size: 15px; }
+.btn.danger[data-armed="1"] { background: var(--coin-soft); border-color: var(--coin); color: var(--coin); font-weight: 700; }
+.notes { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; padding: 0 4px; }
+.notes a { color: var(--accent); }
+
+/* bottom tab bar */
+.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line); padding: 6px max(12px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
+.tabs-in { max-width: 480px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 54px; border-radius: 14px; color: var(--muted); text-decoration: none; font-size: 12px; font-weight: 500; }
+.tab svg { width: 24px; height: 24px; }
+.tab[aria-current="page"] { color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+
+/* install banner (PWA only) */
+.install { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 14px; background: var(--accent-soft); font-size: 14px; }
+.install p { margin: 0; flex: 1 1 200px; min-width: 0; }
+.install .btns { display: flex; gap: 6px; }
+.install button { min-height: 40px; border: 1px solid var(--accent); border-radius: 10px; background: transparent; font-size: 13px; padding: 0 14px; }
+.install button.go { background: var(--accent); color: var(--bg); font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet:not([hidden]) { animation: none; }
+  .sw, .sw::after, .money { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12.5" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-width="4"/><path d="M16 3.5A12.5 12.5 0 1 1 5.17 22.25" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M16 10v6l4 2.5" fill="none" stroke="var(--coin)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>John ver clock</span>
+    </div>
+    <div class="top-r">
+      <span class="pill" id="pill" data-state="idle">출근 전</span>
+      <button type="button" class="icon-btn" id="eye" aria-pressed="false" aria-label="금액 가리기">
+        <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.6 5.1A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6C3.7 8.4 2 12 2 12s4 7 10 7c1.7 0 3.2-.5 4.5-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- 오늘 -->
+    <section class="screen" id="screen-today" aria-label="오늘">
+      <aside class="install" id="install" hidden>
+        <p id="install-text"></p>
+        <div class="btns"><button type="button" class="go" id="install-go" hidden>앱으로 설치</button><button type="button" id="install-x">닫기</button></div>
+      </aside>
+      <article class="hero">
+        <div class="hero-top"><span id="date"></span><span class="hero-now" id="now">00:00:00</span></div>
+        <div class="hero-label">오늘 번 돈</div>
+        <div class="counter money" aria-live="off"><span class="cur">₩</span><span id="int">0</span><span class="dec" id="dec">.00</span></div>
+        <div class="hero-sub"><b id="pct">0.0%</b> 적립 · 일급 <b class="money" id="dailyTxt">0원</b></div>
+        <div class="rail" aria-hidden="true">
+          <div class="rail-clip"><i class="r-fill" id="r-fill"></i><i class="r-lunch" id="r-lunch"></i><span class="r-ticks" id="r-ticks"></span></div>
+          <i class="r-knob off" id="r-knob"></i>
+        </div>
+        <div class="rail-labels"><span id="lbl-start">09:00</span><span id="lbl-end">18:00</span></div>
+        <p class="hero-note" id="tl-note"></p>
+        <p class="slogan" id="slogan"></p>
+      </article>
+
+      <div class="duo">
+        <div class="tile"><span class="k" id="t-left-label">퇴근까지</span><span class="v" id="s-left">-</span></div>
+        <div class="tile"><span class="k">오늘 남은 금액</span><span class="v money" id="s-remain">0원</span></div>
+      </div>
+
+      <dl class="rates">
+        <div><dt>1초당</dt><dd class="money" id="s-sec">0원</dd></div>
+        <div><dt>1분당</dt><dd class="money" id="s-min">0원</dd></div>
+        <div><dt>1시간당</dt><dd class="money" id="s-hour">0원</dd></div>
+      </dl>
+
+      <a class="mcard" href="#month" id="go-month">
+        <div class="mc-top"><span class="k">이번 달 누적</span><span class="mc-more">달력 보기 ›</span></div>
+        <div class="mc-total money"><span id="mc-int">0</span><span class="u">원</span></div>
+        <div class="bar" aria-hidden="true"><i id="mc-bar"></i></div>
+        <div class="mc-sub"><b id="mc-pct">0.0%</b> 월급 대비 · 월 근무일 <b id="mc-w">0일</b></div>
+      </a>
+
+      <a class="sal-link" href="#config" id="go-config">월급 기준 <span class="money" id="sal-link-v">500만원</span> · 설정에서 수정</a>
+    </section>
+
+    <!-- 달력 -->
+    <section class="screen" id="screen-month" aria-label="달력" hidden>
+      <div class="m-nav">
+        <button type="button" class="nav-btn" id="m-prev" aria-label="이전 달">&#8249;</button>
+        <div class="m-title" id="m-title">2026년 11월</div>
+        <button type="button" class="nav-btn" id="m-next" aria-label="다음 달">&#8250;</button>
+        <button type="button" class="mini" id="m-today">이번 달</button>
+      </div>
+      <div class="m-sum">
+        <div class="k" id="m-label">이번 달 누적</div>
+        <div class="mc-total money"><span id="m-int">0</span><span class="u">원</span></div>
+        <div class="bar" aria-hidden="true"><i id="m-bar"></i></div>
+        <div class="mc-sub"><b id="m-pct">0.0%</b> 월급 대비</div>
+      </div>
+      <div class="cal" id="cal" role="group" aria-label="달력"></div>
+      <div class="legend">
+        <span style="--c: var(--surface)">근무일</span>
+        <span style="--c: var(--accent-soft)">연차(유급)</span>
+        <span style="--c: var(--coin-soft)">무급휴가</span>
+        <span style="--c: var(--track)">회사 휴일</span>
+      </div>
+      <p class="hint">날짜를 누르면 연차, 무급휴가, 회사 휴일을 표시할 수 있습니다.</p>
+      <dl class="list">
+        <div><dt>월 예상 총액</dt><dd class="money" id="ms-expect">0원</dd></div>
+        <div><dt>월 근무일</dt><dd id="ms-w">0일</dd></div>
+        <div><dt>하루 일급</dt><dd class="money" id="ms-daily">0원</dd></div>
+        <div><dt>연차 · 무급휴가</dt><dd id="ms-leave">0일 · 0일</dd></div>
+        <div><dt>입사 후 누적</dt><dd class="money" id="ms-since">입사일 미입력</dd></div>
+      </dl>
+    </section>
+
+    <!-- 설정 -->
+    <section class="screen" id="screen-config" aria-label="설정" hidden>
+      <h1 class="s-title">설정</h1>
+      <p class="s-sub">바꾼 값은 바로 반영되고 이 기기에 저장됩니다.</p>
+
+      <div class="group">
+        <label class="g-title" for="salary">월급 (세후)</label>
+        <div class="sal">
+          <button type="button" class="step" id="sal-minus" aria-label="10만원 줄이기">&minus;10만</button>
+          <div class="sal-in"><input id="salary" type="number" inputmode="decimal" step="any" min="0" autocomplete="off"><b>만원</b></div>
+          <button type="button" class="step" id="sal-plus" aria-label="10만원 늘리기">+10만</button>
+        </div>
+        <div class="chips" id="sal-chips">
+          <button type="button" class="chip" data-v="300">300만</button>
+          <button type="button" class="chip" data-v="400">400만</button>
+          <button type="button" class="chip" data-v="500">500만</button>
+          <button type="button" class="chip" data-v="600">600만</button>
+          <button type="button" class="chip" data-v="700">700만</button>
+          <button type="button" class="chip" data-v="800">800만</button>
+        </div>
+        <p class="hint" id="sal-hint"></p>
+      </div>
+
+      <div class="group">
+        <div class="g-title">근무 시간</div>
+        <div class="grid2">
+          <div class="fld"><label for="t-start">출근</label><input class="inp" id="t-start" type="time"></div>
+          <div class="fld"><label for="t-end">퇴근</label><input class="inp" id="t-end" type="time"></div>
+          <div class="fld"><label for="t-ls">점심 시작</label><input class="inp" id="t-ls" type="time"></div>
+          <div class="fld"><label for="t-le">점심 끝</label><input class="inp" id="t-le" type="time"></div>
+        </div>
+        <div class="row">
+          <div><div class="r-t" id="lbl-pause">점심시간 적립 멈춤</div><div class="hint">끄면 점심시간에도 계속 올라갑니다.</div></div>
+          <button type="button" class="sw" id="sw-pause" role="switch" aria-checked="true" aria-labelledby="lbl-pause"></button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="g-title" id="basis-title">일급 계산 방식</div>
+        <div class="seg3" id="basis" role="radiogroup" aria-labelledby="basis-title">
+          <button type="button" role="radio" aria-checked="true" data-v="cal">달력 기준</button>
+          <button type="button" role="radio" aria-checked="false" data-v="days">월 21.7일</button>
+          <button type="button" role="radio" aria-checked="false" data-v="legal">209시간</button>
+        </div>
+        <p class="hint" id="basis-hint"></p>
+      </div>
+
+      <div class="group">
+        <label class="g-title" for="joinDate">입사일 (근무 시작일)</label>
+        <div class="join"><input class="inp" id="joinDate" type="date"><button type="button" class="btn" id="join-clear">지우기</button></div>
+        <p class="hint">입사 전 날짜는 적립하지 않고, 입사한 달은 일할 계산합니다. 입력하면 입사 후 누적이 표시됩니다.</p>
+      </div>
+
+      <div class="group">
+        <div class="g-title">화면</div>
+        <div class="row">
+          <div class="r-t" id="lbl-slogan">응원 문구 표시</div>
+          <button type="button" class="sw" id="sw-slogan" role="switch" aria-checked="true" aria-labelledby="lbl-slogan"></button>
+        </div>
+        <div class="row">
+          <div><div class="r-t" id="lbl-hide">금액 가리기</div><div class="hint">상단의 눈 버튼으로도 바꿀 수 있습니다.</div></div>
+          <button type="button" class="sw" id="sw-hide" role="switch" aria-checked="false" aria-labelledby="lbl-hide"></button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="g-title">데이터</div>
+        <p class="hint">월급, 입사일, 휴가 표시는 이 기기의 브라우저에만 저장되고 서버로 보내지 않습니다. 브라우저 데이터를 지우면 함께 지워집니다.</p>
+        <button type="button" class="btn danger" id="reset">설정과 휴가 표시 모두 지우기</button>
+      </div>
+
+      <div class="notes">
+        <div>월급 500만원은 예시 기본값입니다. 세후 월급 기준 계산이라 실제 수령액과 다를 수 있습니다.</div>
+        <div>공휴일은 <a href="https://astro.kasi.re.kr/kor/life/post/calendarData" target="_blank" rel="noopener">한국천문연구원 월력요항</a> 기준 2025~2027년을 반영했고, 근로자의 날은 2026년에 법정 유급휴일로 넣었습니다. 임시공휴일과 회사별 휴무는 날짜를 눌러 직접 표시해 주세요.</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 날짜 편집 시트 -->
+<div class="scrim" id="scrim" hidden></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="d-date" hidden>
+  <div class="grab"></div>
+  <div class="sh-head"><div class="sh-date" id="d-date"></div><button type="button" class="sh-x" id="sheet-x" aria-label="닫기">&#10005;</button></div>
+  <div class="sh-kind" id="d-kind"></div>
+  <div class="sh-pay" id="d-pay"></div>
+  <div class="sh-chips" id="d-actions"></div>
+</section>
+
+<nav class="tabs" aria-label="화면 전환">
+  <div class="tabs-in">
+    <a class="tab" href="#today" data-s="today" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>오늘</span></a>
+    <a class="tab" href="#month" data-s="month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg><span>달력</span></a>
+    <a class="tab" href="#config" data-s="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg><span>설정</span></a>
+  </div>
+</nav>
+
+<script>
+(function () {
+  'use strict';
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  var KEY = 'john-ver-clock-v3';
+  var DEFAULTS = { salary: 5000000, join: '', tStart: '09:00', tEnd: '18:00', tLs: '12:00', tLe: '13:00', basis: 'cal', pause: true, slogan: true, hide: false, marks: {} };
+  var cfg = clone(DEFAULTS);
+  try {
+    var raw = localStorage.getItem(KEY);
+    if (raw) { var o = JSON.parse(raw); Object.keys(DEFAULTS).forEach(function (k) { if (o && o[k] !== undefined) cfg[k] = o[k]; }); }
+  } catch (e) {}
+  cfg.salary = Math.max(0, Number(cfg.salary) || 0);
+  if (!cfg.marks || typeof cfg.marks !== 'object') cfg.marks = {};
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) {} }
+
+  /* 공휴일 (한국천문연구원 월력요항 기준, 2025~2027). 매년 이 블록만 갱신하면 됩니다. */
+  var HOL = {};
+  function H(k, s, f) { HOL[k] = { s: s, f: f || s }; }
+  H('2025-01-01', '신정'); H('2025-01-27', '임시', '임시공휴일'); H('2025-01-28', '설날', '설날 연휴'); H('2025-01-29', '설날', '설날'); H('2025-01-30', '설날', '설날 연휴');
+  H('2025-03-01', '삼일절'); H('2025-03-03', '대체', '대체공휴일(삼일절)');
+  H('2025-05-05', '어린이날', '어린이날, 부처님오신날'); H('2025-05-06', '대체', '대체공휴일(어린이날, 부처님오신날)');
+  H('2025-06-03', '선거일', '대통령선거일'); H('2025-06-06', '현충일'); H('2025-08-15', '광복절'); H('2025-10-03', '개천절');
+  H('2025-10-05', '추석', '추석 연휴'); H('2025-10-06', '추석'); H('2025-10-07', '추석', '추석 연휴'); H('2025-10-08', '대체', '대체공휴일(추석)');
+  H('2025-10-09', '한글날'); H('2025-12-25', '성탄절');
+  H('2026-01-01', '신정'); H('2026-02-16', '설날', '설날 연휴'); H('2026-02-17', '설날'); H('2026-02-18', '설날', '설날 연휴');
+  H('2026-03-01', '삼일절'); H('2026-03-02', '대체', '대체공휴일(삼일절)');
+  H('2026-05-01', '노동절', '근로자의 날(법정 유급휴일)'); H('2026-05-05', '어린이날');
+  H('2026-05-24', '석가탄신', '부처님오신날'); H('2026-05-25', '대체', '대체공휴일(부처님오신날)');
+  H('2026-06-03', '선거일', '전국동시지방선거일'); H('2026-06-06', '현충일'); H('2026-07-17', '제헌절');
+  H('2026-08-15', '광복절'); H('2026-08-17', '대체', '대체공휴일(광복절)');
+  H('2026-09-24', '추석', '추석 연휴'); H('2026-09-25', '추석'); H('2026-09-26', '추석', '추석 연휴');
+  H('2026-10-03', '개천절'); H('2026-10-05', '대체', '대체공휴일(개천절)'); H('2026-10-09', '한글날'); H('2026-12-25', '성탄절');
+  H('2027-01-01', '신정'); H('2027-02-06', '설날', '설날 연휴'); H('2027-02-07', '설날'); H('2027-02-08', '설날', '설날 연휴'); H('2027-02-09', '대체', '대체공휴일(설날)');
+  H('2027-03-01', '삼일절'); H('2027-05-01', '노동절'); H('2027-05-03', '대체', '대체공휴일(노동절)'); H('2027-05-05', '어린이날');
+  H('2027-05-13', '석가탄신', '부처님오신날'); H('2027-06-06', '현충일'); H('2027-07-17', '제헌절'); H('2027-07-19', '대체', '대체공휴일(제헌절)');
+  H('2027-08-15', '광복절'); H('2027-08-16', '대체', '대체공휴일(광복절)');
+  H('2027-09-14', '추석', '추석 연휴'); H('2027-09-15', '추석'); H('2027-09-16', '추석', '추석 연휴');
+  H('2027-10-03', '개천절'); H('2027-10-04', '대체', '대체공휴일(개천절)'); H('2027-10-09', '한글날'); H('2027-10-11', '대체', '대체공휴일(한글날)');
+  H('2027-12-25', '성탄절'); H('2027-12-27', '대체', '대체공휴일(성탄절)');
+
+  /* ---------- 유틸 ---------- */
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function key(y, m, d) { return y + '-' + pad(m + 1) + '-' + pad(d); }
+  function parseKey(k) { var p = k.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function dim(y, m) { return new Date(y, m + 1, 0).getDate(); }
+  function toSec(t) { var p = String(t || '').split(':'); return (parseInt(p[0], 10) || 0) * 3600 + (parseInt(p[1], 10) || 0) * 60; }
+  function hm(sec) { return pad(Math.floor(sec / 3600)) + ':' + pad(Math.floor((sec % 3600) / 60)); }
+  function won(n) { return Math.round(n).toLocaleString('ko-KR') + '원'; }
+  function clock(sec) { sec = Math.max(0, Math.floor(sec)); return Math.floor(sec / 3600) + ':' + pad(Math.floor((sec % 3600) / 60)) + ':' + pad(sec % 60); }
+  function frac(a, b, t) { return b > a ? Math.min(1, Math.max(0, (t - a) / (b - a))) : 0; }
+  function pc(f) { return (f * 100).toFixed(3) + '%'; }
+  function setText(e, v) { if (e._v !== v) { e.textContent = v; e._v = v; } }
+  function toMan(sal) { return String(Math.round(sal / 100) / 100); }
+  function fmtMan(sal) { return (Math.round(sal / 100) / 100).toLocaleString('ko-KR') + '만원'; }
+  var WD = ['일', '월', '화', '수', '목', '금', '토'];
+  var KIND_LABEL = { work: '근무일', weekend: '주말', paid: '연차(유급)', unpaid: '무급휴가', off: '회사 휴일', before: '입사 전' };
+
+  /* ---------- 달력 규칙 ---------- */
+  function baseOf(k, dow) { if (dow === 0 || dow === 6) return 'weekend'; if (HOL[k]) return 'holiday'; return 'weekday'; }
+  function kindOf(k, dow) {
+    if (cfg.join && k < cfg.join) return 'before';
+    var b = baseOf(k, dow), mk = cfg.marks[k];
+    if (b === 'weekday') { if (mk === 'paid') return 'paid'; if (mk === 'unpaid') return 'unpaid'; if (mk === 'off') return 'off'; return 'work'; }
+    return mk === 'work' ? 'work' : b;
+  }
+  function kindText(k, kind) {
+    if (kind === 'holiday') return HOL[k].f;
+    if (kind === 'weekend' && HOL[k]) return HOL[k].f + ' (주말)';
+    if (kind === 'work' && (HOL[k] || parseKey(k).getDay() % 6 === 0)) return '근무일로 지정';
+    return KIND_LABEL[kind];
+  }
+
+  var M = {}, wcache = {}, CS = null, VS = null, SINCE = null;
+  var TY, TM, TD, TK, TDOW, TKIND, viewY, viewM, sel, VCUR = true, VFUT = false, curScreen = 'today';
+
+  function buildTimes() {
+    var s = toSec(cfg.tStart), e = toSec(cfg.tEnd), ls = toSec(cfg.tLs), le = toSec(cfg.tLe);
+    if (!(e > s)) { s = 9 * 3600; e = 18 * 3600; }
+    if (!(le > ls)) { ls = le = e; }
+    ls = Math.min(Math.max(ls, s), e);
+    le = Math.min(Math.max(le, s), e);
+    var lunch = Math.max(0, le - ls);
+    if (lunch === 0) { ls = le = e; }
+    M.s = s; M.e = e; M.ls = ls; M.le = le; M.lunch = lunch;
+    M.total = Math.max(1, (e - s) - (cfg.pause ? lunch : 0));
+  }
+  function workdays(y, m) {
+    var ck = y + '-' + m;
+    if (wcache[ck] !== undefined) return wcache[ck];
+    var n = 0, c = dim(y, m);
+    for (var d = 1; d <= c; d++) {
+      var dow = new Date(y, m, d).getDay(), k = key(y, m, d), b = baseOf(k, dow), mk = cfg.marks[k];
+      if ((b === 'weekday' && mk !== 'off') || (b !== 'weekday' && mk === 'work')) n++;
+    }
+    wcache[ck] = Math.max(1, n);
+    return wcache[ck];
+  }
+  function dailyFor(y, m) {
+    var sal = cfg.salary;
+    if (cfg.basis === 'legal') return (sal / 209) * (M.total / 3600);
+    if (cfg.basis === 'days') return sal / 21.7;
+    return sal / workdays(y, m);
+  }
+  function earnedAt(sec) {
+    var t = Math.min(Math.max(sec, M.s), M.e);
+    var worked = t - M.s;
+    if (cfg.pause) worked -= Math.max(0, Math.min(t, M.le) - M.ls);
+    return Math.max(0, worked) * M.rate;
+  }
+  function monthSum(y, m) {
+    var n = dim(y, m), daily = dailyFor(y, m);
+    var r = { base: 0, expected: 0, paidN: 0, unpaidN: 0, W: workdays(y, m), daily: daily };
+    for (var d = 1; d <= n; d++) {
+      var dt = new Date(y, m, d), k = key(y, m, d), kind = kindOf(k, dt.getDay());
+      var pay = (kind === 'work' || kind === 'paid') ? daily : 0;
+      r.expected += pay;
+      if (k < TK) r.base += pay; else if (k === TK && kind === 'paid') r.base += pay;
+      if (kind === 'paid') r.paidN++;
+      if (kind === 'unpaid') r.unpaidN++;
+    }
+    return r;
+  }
+  function sinceBase() {
+    if (!cfg.join || cfg.join > TK) return null;
+    var d = parseKey(cfg.join);
+    if (isNaN(d.getTime())) return null;
+    var total = 0, guard = 0, dc = {};
+    while (guard++ < 40000) {
+      var y = d.getFullYear(), m = d.getMonth(), k = key(y, m, d.getDate());
+      if (k > TK) break;
+      var mk = y + '-' + m;
+      if (dc[mk] === undefined) dc[mk] = dailyFor(y, m);
+      var kind = kindOf(k, d.getDay());
+      if ((kind === 'work' && k < TK) || (kind === 'paid' && k <= TK)) total += dc[mk];
+      d.setDate(d.getDate() + 1);
+    }
+    return total;
+  }
+
+  /* ---------- 엘리먼트 ---------- */
+  var el = {
+    pill: $('pill'), eye: $('eye'), date: $('date'), now: $('now'), int: $('int'), dec: $('dec'), pct: $('pct'), dailyTxt: $('dailyTxt'),
+    rFill: $('r-fill'), rLunch: $('r-lunch'), rTicks: $('r-ticks'), knob: $('r-knob'), lblStart: $('lbl-start'), lblEnd: $('lbl-end'), note: $('tl-note'), slogan: $('slogan'),
+    leftLabel: $('t-left-label'), sLeft: $('s-left'), sRemain: $('s-remain'), sSec: $('s-sec'), sMin: $('s-min'), sHour: $('s-hour'),
+    mcInt: $('mc-int'), mcBar: $('mc-bar'), mcPct: $('mc-pct'), mcW: $('mc-w'), salLinkV: $('sal-link-v'),
+    mTitle: $('m-title'), mLabel: $('m-label'), mInt: $('m-int'), mBar: $('m-bar'), mPct: $('m-pct'), cal: $('cal'),
+    msExpect: $('ms-expect'), msW: $('ms-w'), msDaily: $('ms-daily'), msLeave: $('ms-leave'), msSince: $('ms-since'),
+    sheet: $('sheet'), scrim: $('scrim'), sheetX: $('sheet-x'), dDate: $('d-date'), dKind: $('d-kind'), dPay: $('d-pay'), dActions: $('d-actions'),
+    salary: $('salary'), salHint: $('sal-hint'), salChips: $('sal-chips'), basis: $('basis'), basisHint: $('basis-hint'),
+    tStart: $('t-start'), tEnd: $('t-end'), tLs: $('t-ls'), tLe: $('t-le'), join: $('joinDate'),
+    swPause: $('sw-pause'), swSlogan: $('sw-slogan'), swHide: $('sw-hide'), reset: $('reset')
+  };
+  var dateFmt = null;
+  try { dateFmt = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' }); } catch (e) {}
+
+  var BASIS_HINT = {
+    cal: '월급을 그 달의 근무일수(주말, 공휴일 제외)로 나눕니다. 만근하면 월 누적이 월급과 같아집니다.',
+    days: '월급을 21.7일로 나눈 값을 일급으로 씁니다. 달마다 합계가 월급과 다를 수 있습니다.',
+    legal: '월급을 법정 209시간으로 나눈 시급 기준입니다. 달마다 합계가 월급과 다를 수 있습니다.'
+  };
+  var SLOGANS = {
+    before: ['오늘도 존버 시작! 출근하는 순간부터 월급은 알아서 쌓입니다.', '출근 완료까지 조금만 더. 오늘도 잔고는 당신 편입니다.'],
+    work: [
+      '오늘도 존버! 지금 이 시간에도 돈을 벌고 있는 당신을 응원합니다.',
+      '가만히 있어도 올라갑니다. 버티는 당신이 오늘의 승자입니다.',
+      '숨만 쉬어도 초당 월급이 쌓입니다. 존버는 배신하지 않습니다.',
+      '지금 이 순간에도 통장은 자라는 중입니다. 조금만 더 존버!',
+      '오늘 버틴 한 시간이 내일의 여유가 됩니다. 힘내세요.',
+      '회의가 길어져도 시계는 당신 편입니다. 존버 중인 당신, 멋집니다.'
+    ],
+    lunch: ['점심시간은 존버 잠깐 멈춤. 든든히 드시고 오후도 버팁시다.', '밥 먹는 동안은 쉬어 가는 시간입니다. 오후 존버를 위해 충전하세요.'],
+    done: ['오늘도 존버 성공! 고생했습니다. 내일도 잔고는 쌓입니다.', '퇴근 완료. 오늘 하루 버텨낸 당신, 충분히 잘했습니다.'],
+    rest: ['쉬는 날에도 존버는 계속됩니다. 푹 쉬고 오세요.', '오늘은 시계도 쉬는 날. 충전한 만큼 다음 주가 가벼워집니다.'],
+    paid: ['연차에도 월급은 쌓입니다. 마음껏 쉬세요.'],
+    unpaid: ['무급이어도 쉼은 소중합니다. 다음 월급날까지 존버!'],
+    off: ['회사가 쉬라는 날입니다. 오늘은 마음 편히 존버하세요.'],
+    before_join: ['입사 전에도 존버는 시작되고 있습니다. 곧 시계가 올라갑니다.']
+  };
+  function sloganFor(kind) {
+    var a = SLOGANS[kind] || SLOGANS.work;
+    var i = kind === 'work' ? Math.floor(Date.now() / 60000) % a.length : (new Date().getDate()) % a.length;
+    return a[i];
+  }
+  var TODAY_LABEL = { weekend: '주말', holiday: '공휴일', paid: '연차', unpaid: '무급휴가', off: '회사 휴일', before: '입사 전' };
+
+  /* ---------- 렌더 ---------- */
+  function renderCal() {
+    var first = new Date(viewY, viewM, 1).getDay(), n = dim(viewY, viewM), daily = dailyFor(viewY, viewM), h = '', i, d;
+    for (i = 0; i < 7; i++) h += '<div class="dow' + (i === 0 ? ' sun' : '') + '">' + WD[i] + '</div>';
+    for (i = 0; i < first; i++) h += '<div class="blank"></div>';
+    for (d = 1; d <= n; d++) {
+      var k = key(viewY, viewM, d), dow = (first + d - 1) % 7, kind = kindOf(k, dow), hol = HOL[k];
+      var cls = 'day k-' + kind + (k === TK ? ' today' : '') + (k === sel ? ' sel' : '') + ((dow === 0 || (hol && kind !== 'work' && kind !== 'before')) ? ' hol' : '');
+      var tag = kind === 'paid' ? '연차' : kind === 'unpaid' ? '무급' : kind === 'off' ? '휴무' : (kind === 'work' && (dow % 6 === 0 || hol)) ? '근무' : (hol ? hol.s : '');
+      var amt = ((kind === 'work' && k < TK) || (kind === 'paid' && k <= TK)) ? (daily / 10000).toFixed(1) + '만' : '';
+      h += '<button type="button" class="' + cls + '" data-k="' + k + '" aria-label="' + (viewM + 1) + '월 ' + d + '일 ' + kindText(k, kind) + '"><span class="n">' + d + '</span><span class="tag">' + tag + '</span><span class="amt money">' + amt + '</span></button>';
+    }
+    el.cal.innerHTML = h;
+  }
+  function renderSheetBody() {
+    if (!sel) return;
+    var dt = parseKey(sel), dow = dt.getDay(), kind = kindOf(sel, dow), b = baseOf(sel, dow);
+    var daily = dailyFor(dt.getFullYear(), dt.getMonth());
+    setText(el.dDate, (dt.getMonth() + 1) + '월 ' + dt.getDate() + '일 ' + WD[dow] + '요일');
+    setText(el.dKind, kindText(sel, kind));
+    var pay = (kind === 'work' || kind === 'paid');
+    var state = sel < TK ? '적립 완료' : sel === TK ? (kind === 'work' ? '오늘 진행 중' : '오늘 적립') : '예정';
+    el.dPay.innerHTML = pay ? '일급 <b class="money">' + won(daily) + '</b>, ' + state : '이 날은 적립되지 않습니다.';
+    var opts = b === 'weekday' ? [['', '기본'], ['paid', '연차(유급)'], ['unpaid', '무급휴가'], ['off', '회사 휴일']] : [['', '기본'], ['work', '근무일로 지정']];
+    var cur = cfg.marks[sel] || '', h = '';
+    opts.forEach(function (o) { h += '<button type="button" class="chip" data-v="' + o[0] + '" aria-pressed="' + (cur === o[0]) + '">' + o[1] + '</button>'; });
+    el.dActions.innerHTML = h;
+  }
+  function renderMonthStatic() {
+    VCUR = viewY === TY && viewM === TM;
+    VFUT = viewY > TY || (viewY === TY && viewM > TM);
+    setText(el.mTitle, viewY + '년 ' + (viewM + 1) + '월');
+    setText(el.mLabel, VCUR ? '이번 달 누적' : VFUT ? (viewM + 1) + '월 예상' : (viewM + 1) + '월 누적');
+    setText(el.msExpect, won(VS.expected));
+    setText(el.msW, VS.W + '일');
+    setText(el.msDaily, won(VS.daily));
+    setText(el.msLeave, VS.paidN + '일 · ' + VS.unpaidN + '일');
+    setText(el.mcW, CS.W + '일');
+  }
+  function renderMonth() {
+    VS = (viewY === TY && viewM === TM) ? CS : monthSum(viewY, viewM);
+    renderCal(); renderSheetBody(); renderMonthStatic(); tick();
+  }
+  function syncFlags() {
+    document.body.classList.toggle('hide-money', !!cfg.hide);
+    el.eye.setAttribute('aria-pressed', String(!!cfg.hide));
+    el.eye.setAttribute('aria-label', cfg.hide ? '금액 보이기' : '금액 가리기');
+    el.slogan.hidden = !cfg.slogan;
+    el.swPause.setAttribute('aria-checked', String(!!cfg.pause));
+    el.swSlogan.setAttribute('aria-checked', String(!!cfg.slogan));
+    el.swHide.setAttribute('aria-checked', String(!!cfg.hide));
+  }
+  function syncConfig(skipSalary) {
+    if (!skipSalary) el.salary.value = toMan(cfg.salary);
+    var man = Math.round(cfg.salary / 100) / 100;
+    Array.prototype.forEach.call(el.salChips.children, function (c) { c.setAttribute('aria-pressed', String(Number(c.getAttribute('data-v')) === man)); });
+    setText(el.salHint, '월 ' + won(cfg.salary) + ' 기준, 입력은 만원 단위입니다.');
+    el.tStart.value = cfg.tStart; el.tEnd.value = cfg.tEnd; el.tLs.value = cfg.tLs; el.tLe.value = cfg.tLe;
+    el.join.value = cfg.join || '';
+    Array.prototype.forEach.call(el.basis.children, function (b) { b.setAttribute('aria-checked', String(b.getAttribute('data-v') === cfg.basis)); });
+    setText(el.basisHint, BASIS_HINT[cfg.basis]);
+    setText(el.salLinkV, fmtMan(cfg.salary));
+  }
+
+  function renderStatic() {
+    var n = new Date();
+    TY = n.getFullYear(); TM = n.getMonth(); TD = n.getDate(); TK = key(TY, TM, TD); TDOW = n.getDay();
+    buildTimes(); wcache = {};
+    TKIND = kindOf(TK, TDOW);
+    M.daily = dailyFor(TY, TM); M.rate = M.daily / M.total;
+    if (viewY === undefined) { viewY = TY; viewM = TM; }
+    if (!sel) sel = TK;
+
+    var span = M.e - M.s;
+    if (M.lunch > 0) { el.rLunch.hidden = false; el.rLunch.style.left = pc((M.ls - M.s) / span); el.rLunch.style.width = pc(M.lunch / span); }
+    else { el.rLunch.hidden = true; }
+    el.rLunch.classList.toggle('soft', !cfg.pause);
+    var th = '';
+    for (var t = Math.ceil(M.s / 3600) * 3600; t < M.e; t += 3600) { if (t > M.s) th += '<i style="left:' + pc((t - M.s) / span) + '"></i>'; }
+    el.rTicks.innerHTML = th;
+    setText(el.lblStart, hm(M.s));
+    setText(el.lblEnd, hm(M.e));
+    setText(el.note, M.lunch > 0 ? '점심 ' + hm(M.ls) + ' ~ ' + hm(M.le) + (cfg.pause ? ', 적립 멈춤' : ', 적립 계속') : '점심시간 없음');
+    setText(el.sSec, M.rate.toFixed(2) + '원');
+    setText(el.sMin, won(M.rate * 60));
+    setText(el.sHour, won(M.rate * 3600));
+    setText(el.dailyTxt, won(M.daily));
+    SINCE = sinceBase();
+    CS = monthSum(TY, TM);
+    syncFlags();
+    renderMonth();
+  }
+
+  function tick() {
+    var d = new Date();
+    if (key(d.getFullYear(), d.getMonth(), d.getDate()) !== TK) { viewY = undefined; sel = null; renderStatic(); return; }
+    var sec = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() + d.getMilliseconds() / 1000;
+    setText(el.now, pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()));
+    setText(el.date, dateFmt ? dateFmt.format(d) : d.toDateString());
+
+    var live = TKIND === 'work' ? earnedAt(sec) : 0;
+    var earned = TKIND === 'paid' ? M.daily : live;
+    var cents = Math.floor(earned * 100 + 1e-6);
+    setText(el.int, Math.floor(cents / 100).toLocaleString('ko-KR'));
+    setText(el.dec, '.' + pad(cents % 100));
+    var todayPay = (TKIND === 'work' || TKIND === 'paid');
+    setText(el.pct, (todayPay && M.daily > 0 ? (earned / M.daily) * 100 : 0).toFixed(1) + '%');
+    setText(el.sRemain, won(todayPay ? Math.max(0, M.daily - earned) : 0));
+
+    var f = TKIND === 'paid' ? 1 : TKIND === 'work' ? frac(M.s, M.e, sec) : 0;
+    var w = pc(f);
+    if (el.rFill._v !== w) { el.rFill.style.width = w; el.knob.style.left = w; el.rFill._v = w; }
+    var kv = TKIND === 'work' && sec >= M.s && sec < M.e;
+    if (el.knob._on !== kv) { el.knob.classList.toggle('off', !kv); el.knob._on = kv; }
+
+    var state = 'idle', label, sk;
+    if (TKIND !== 'work') { label = TODAY_LABEL[TKIND]; sk = (TKIND === 'weekend' || TKIND === 'holiday') ? 'rest' : TKIND === 'before' ? 'before_join' : TKIND; }
+    else if (sec < M.s) { label = '출근 전'; sk = 'before'; }
+    else if (sec >= M.e) { label = '퇴근 완료'; sk = 'done'; }
+    else if (cfg.pause && M.lunch > 0 && sec >= M.ls && sec < M.le) { state = 'lunch'; label = '점심시간'; sk = 'lunch'; }
+    else { state = 'work'; label = '근무 중'; sk = 'work'; }
+    setText(el.pill, label);
+    if (el.pill.dataset.state !== state) el.pill.dataset.state = state;
+    setText(el.slogan, sloganFor(sk));
+
+    if (TKIND !== 'work') { setText(el.leftLabel, '퇴근까지'); setText(el.sLeft, '-'); }
+    else if (sec < M.s) { setText(el.leftLabel, '출근까지'); setText(el.sLeft, clock(M.s - sec)); }
+    else if (sec < M.e) { setText(el.leftLabel, '퇴근까지'); setText(el.sLeft, clock(M.e - sec)); }
+    else { setText(el.leftLabel, '퇴근까지'); setText(el.sLeft, '퇴근 완료'); }
+
+    var sal = cfg.salary;
+    var curTotal = CS.base + live;
+    setText(el.mcInt, Math.floor(curTotal).toLocaleString('ko-KR'));
+    var cp = sal > 0 ? (curTotal / sal) * 100 : 0;
+    setText(el.mcPct, cp.toFixed(1) + '%');
+    var cw = Math.min(100, cp).toFixed(2) + '%';
+    if (el.mcBar._v !== cw) { el.mcBar.style.width = cw; el.mcBar._v = cw; }
+
+    var vTotal = VFUT ? VS.expected : VS.base + (VCUR ? live : 0);
+    setText(el.mInt, Math.floor(vTotal).toLocaleString('ko-KR'));
+    var vp = sal > 0 ? (vTotal / sal) * 100 : 0;
+    setText(el.mPct, vp.toFixed(1) + '%');
+    var vw = Math.min(100, vp).toFixed(2) + '%';
+    if (el.mBar._v !== vw) { el.mBar.style.width = vw; el.mBar._v = vw; }
+
+    setText(el.msSince, SINCE === null ? (cfg.join ? '입사 전' : '입사일 미입력') : won(SINCE + live));
+  }
+
+  /* ---------- 화면 전환 ---------- */
+  var SCREENS = ['today', 'month', 'config'];
+  var tabLinks = document.querySelectorAll('.tab');
+  function show(name) {
+    if (SCREENS.indexOf(name) < 0) name = 'today';
+    if (name === curScreen && !$('screen-' + name).hidden) return;
+    SCREENS.forEach(function (n) { $('screen-' + n).hidden = n !== name; });
+    Array.prototype.forEach.call(tabLinks, function (a) { if (a.getAttribute('data-s') === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    if (name !== 'month' && !el.sheet.hidden) closeSheet(true);
+    curScreen = name;
+    try { window.scrollTo(0, 0); } catch (e) {}
+  }
+  function go(name) { show(name); try { if (location.hash !== '#' + name) location.hash = name; } catch (e) {} }
+  function fromHash() { var h = (location.hash || '').replace('#', ''); return SCREENS.indexOf(h) >= 0 ? h : 'today'; }
+  window.addEventListener('hashchange', function () { show(fromHash()); });
+  Array.prototype.forEach.call(document.querySelectorAll('a[href="#today"],a[href="#month"],a[href="#config"]'), function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); go(a.getAttribute('href').slice(1)); });
+  });
+
+  /* ---------- 날짜 시트 ---------- */
+  function openSheet(k) {
+    sel = k; renderCal(); renderSheetBody();
+    el.sheet.hidden = false; el.scrim.hidden = false;
+    document.body.classList.add('sheet-open');
+    try { el.sheetX.focus(); } catch (e) {}
+  }
+  function closeSheet(silent) {
+    el.sheet.hidden = true; el.scrim.hidden = true;
+    document.body.classList.remove('sheet-open');
+    if (!silent) { var b = el.cal.querySelector('.day.sel'); if (b) { try { b.focus(); } catch (e) {} } }
+  }
+  el.cal.addEventListener('click', function (e) { var b = e.target.closest ? e.target.closest('.day') : null; if (b) openSheet(b.getAttribute('data-k')); });
+  el.sheetX.addEventListener('click', function () { closeSheet(); });
+  el.scrim.addEventListener('click', function () { closeSheet(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !el.sheet.hidden) closeSheet(); });
+  el.dActions.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.chip') : null;
+    if (!b) return;
+    var v = b.getAttribute('data-v');
+    if (v) cfg.marks[sel] = v; else delete cfg.marks[sel];
+    save(); renderStatic();
+  });
+  $('m-prev').addEventListener('click', function () { viewM--; if (viewM < 0) { viewM = 11; viewY--; } renderMonth(); });
+  $('m-next').addEventListener('click', function () { viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderMonth(); });
+  $('m-today').addEventListener('click', function () { viewY = TY; viewM = TM; sel = TK; renderMonth(); });
+
+  /* ---------- 설정 입력 ---------- */
+  function setSalary(v) { cfg.salary = Math.max(0, Math.min(1000000000, Math.round(v))); save(); renderStatic(); syncConfig(false); }
+  el.salary.addEventListener('input', function () {
+    var v = parseFloat(el.salary.value);
+    cfg.salary = isFinite(v) && v > 0 ? Math.min(1000000000, Math.round(v * 10000)) : 0;
+    save(); renderStatic(); syncConfig(true);
+  });
+  $('sal-minus').addEventListener('click', function () { setSalary(cfg.salary - 100000); });
+  $('sal-plus').addEventListener('click', function () { setSalary(cfg.salary + 100000); });
+  el.salChips.addEventListener('click', function (e) { var b = e.target.closest ? e.target.closest('.chip') : null; if (b) setSalary(Number(b.getAttribute('data-v')) * 10000); });
+  function timeField(input, name) { input.addEventListener('input', function () { cfg[name] = input.value || DEFAULTS[name]; save(); renderStatic(); }); }
+  timeField(el.tStart, 'tStart'); timeField(el.tEnd, 'tEnd'); timeField(el.tLs, 'tLs'); timeField(el.tLe, 'tLe');
+  el.join.addEventListener('input', function () { cfg.join = el.join.value || ''; save(); renderStatic(); });
+  $('join-clear').addEventListener('click', function () { cfg.join = ''; el.join.value = ''; save(); renderStatic(); });
+  el.basis.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) return;
+    cfg.basis = b.getAttribute('data-v'); save(); renderStatic(); syncConfig(true);
+  });
+  function flag(btn, name) { btn.addEventListener('click', function () { cfg[name] = !cfg[name]; save(); renderStatic(); }); }
+  flag(el.swPause, 'pause'); flag(el.swSlogan, 'slogan'); flag(el.swHide, 'hide');
+  el.eye.addEventListener('click', function () { cfg.hide = !cfg.hide; save(); syncFlags(); });
+  var armTimer = null;
+  el.reset.addEventListener('click', function () {
+    if (el.reset.getAttribute('data-armed') !== '1') {
+      el.reset.setAttribute('data-armed', '1'); el.reset.textContent = '정말 지울까요? 한 번 더 누르면 삭제됩니다';
+      clearTimeout(armTimer);
+      armTimer = setTimeout(function () { el.reset.removeAttribute('data-armed'); el.reset.textContent = '설정과 휴가 표시 모두 지우기'; }, 4000);
+      return;
+    }
+    clearTimeout(armTimer);
+    el.reset.removeAttribute('data-armed'); el.reset.textContent = '설정과 휴가 표시 모두 지우기';
+    cfg = clone(DEFAULTS); save(); viewY = undefined; sel = null; renderStatic(); syncConfig(false);
+  });
+
+  syncConfig(false);
+  renderStatic();
+  show(fromHash());
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) { setInterval(tick, 1000); }
+  else { (function loop() { tick(); requestAnimationFrame(loop); })(); }
+})();
+</script>
+<script>
+(function () {
+  var box = document.getElementById('install'), txt = document.getElementById('install-text');
+  var go = document.getElementById('install-go'), x = document.getElementById('install-x');
+  var deferred = null, KEY = 'john-ver-clock-install-dismissed';
+  function standalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  }
+  function dismissed() { try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; } }
+  function hide() { box.hidden = true; }
+  function show(t, canInstall) { if (standalone() || dismissed()) return; txt.textContent = t; go.hidden = !canInstall; box.hidden = false; }
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault(); deferred = e;
+    show('홈 화면에 설치하면 앱처럼 바로 열리고, 인터넷이 없어도 쓸 수 있습니다.', true);
+  });
+  window.addEventListener('appinstalled', hide);
+  go.addEventListener('click', function () {
+    if (!deferred) return;
+    deferred.prompt();
+    deferred.userChoice.then(function () { deferred = null; hide(); });
+  });
+  x.addEventListener('click', function () { try { localStorage.setItem(KEY, '1'); } catch (e) {} hide(); });
+  var ua = navigator.userAgent || '';
+  var ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios && !standalone()) show('아이폰은 Safari 하단의 공유 버튼을 누르고 "홈 화면에 추가"를 선택하면 앱으로 설치됩니다.', false);
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js').catch(function () {}); });
+  }
+})();
+</script>
+</body>
+</html>
